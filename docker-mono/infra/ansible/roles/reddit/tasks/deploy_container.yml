@@ -1,0 +1,7 @@
+---
+- name: Create a container with the reddit app
+  docker_container:
+    name: reddit
+    image: "ivandebian/reddit:1.0"
+    ports:
+      - "9292:9292"
