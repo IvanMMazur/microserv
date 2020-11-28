@@ -135,3 +135,52 @@ List of changes in the FS since the start of the container:
 ```bash
 $ docker diff reddit
 ```
+
+
+## 16 (docker-3)
+* describe and build Docker images for a service application;
+* optimize work with Docker images;
+* launch and operation of the application based on Docker images;
+* ease of running containers using docker run;
+* redefined ENV via docker run;
+* optimized container size (Alpine based image).
+
+The work was carried out in the src directory, where there is a separate directory for each service (comment, post-py, ui). For MongoDB, I used an image from Docker Hub.
+
+Changes have been made as per hadolint guidelines:
+### docker-mono/Dockerfile Example
+RUN apt-get update -qq && apt-get install -y build-essential
+=>
+RUN apt-get update -qq && apt-get install -y build-essential --no-install-recommends \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ADD Gemfile* $APP_HOME/
+=>
+COPY Gemfile* $APP_HOME/
+
+ADD . $APP_HOME
+=>
+COPY . $APP_HOME
+
+For convenience, our containers used network aliases (there is a reference to them in ENV). Since aliases are not available on the default network, it was necessary to create a separate bridge network.
+```bash
+$ docker network create reddit
+$ docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db mongo:latest
+$ docker run -d --network=reddit --network-alias=post ivandebian/post:1.0
+$ docker run -d --network=reddit --network-alias=comment ivandebian/comment:1.0
+$ docker run -d --network=reddit -p 9292:9292 ivandebian/ui:1.0
+```
+The addresses for container interaction are set via ENV variables inside Dockerfiles.
+We can override ENV using the -e flag OR aliasses via env.list file: 
+
+```bash
+$ docker run -d --network=reddit --network-alias=post_db2 --network-alias=comment_db2 mongo:latest
+
+$ docker run -d --network=reddit --network-alias=post2 -e POST_DATABASE_HOST=post_db2 weisdd/post:1.0
+
+$ docker run -d --network=reddit --network-alias=comment2 -e COMMENT_DATABASE_HOST=comment_db2 weisdd/comment:1.0
+
+$ docker run -d --network=reddit -p 9292:9292 -e POST_SERVICE_HOST=post2 -e COMMENT_SERVICE_HOST=comment2 weisdd/ui:1.0
+```
+
+To optimize the image I used https://hadolint.github.io/hadolint/

@@ -30,3 +30,5 @@ inspec.lock
 .molecule
 .cache
 .pytest_cache
+
+key.json
