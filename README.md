@@ -135,3 +135,163 @@ List of changes in the FS since the start of the container:
 ```bash
 $ docker diff reddit
 ```
+
+
+## 16 (docker-3)
+* describe and build Docker images for a service application;
+* optimize work with Docker images;
+* launch and operation of the application based on Docker images;
+* ease of running containers using docker run;
+* redefined ENV via docker run;
+* optimized container size (Alpine based image).
+
+The work was carried out in the src directory, where there is a separate directory for each service (comment, post-py, ui). For MongoDB, I used an image from Docker Hub.
+
+Changes have been made as per hadolint guidelines:
+### docker-mono/Dockerfile Example
+RUN apt-get update -qq && apt-get install -y build-essential
+=>
+RUN apt-get update -qq && apt-get install -y build-essential --no-install-recommends \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ADD Gemfile* $APP_HOME/
+=>
+COPY Gemfile* $APP_HOME/
+
+ADD . $APP_HOME
+=>
+COPY . $APP_HOME
+
+For convenience, our containers used network aliases (there is a reference to them in ENV). Since aliases are not available on the default network, it was necessary to create a separate bridge network.
+```bash
+$ docker network create reddit
+$ docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db mongo:latest
+$ docker run -d --network=reddit --network-alias=post ivandebian/post:1.0
+$ docker run -d --network=reddit --network-alias=comment ivandebian/comment:1.0
+$ docker run -d --network=reddit -p 9292:9292 ivandebian/ui:1.0
+```
+The addresses for container interaction are set via ENV variables inside Dockerfiles.
+We can override ENV using the -e flag OR aliasses via env.list file: 
+
+```bash
+$ docker run -d --network=reddit --network-alias=post_db2 --network-alias=comment_db2 mongo:latest
+
+$ docker run -d --network=reddit --network-alias=post2 -e POST_DATABASE_HOST=post_db2 weisdd/post:1.0
+
+$ docker run -d --network=reddit --network-alias=comment2 -e COMMENT_DATABASE_HOST=comment_db2 weisdd/comment:1.0
+
+$ docker run -d --network=reddit -p 9292:9292 -e POST_SERVICE_HOST=post2 -e COMMENT_SERVICE_HOST=comment2 weisdd/ui:1.0
+```
+
+To optimize the image I used https://hadolint.github.io/hadolint/
+
+
+## Running on local machine
+* Run docker-machine on local machine in Virtualbox
+  - `docker-machine create --driver virtualbox default`
+  - ```bash
+    docker-machine env default
+    export DOCKER_TLS_VERIFY="1"
+    export DOCKER_HOST="tcp://192.168.99.99:2376"
+    export DOCKER_CERT_PATH="/home/ivan/.docker/machine/machines/default"
+    export DOCKER_MACHINE_NAME="default"
+    # Run this command to configure your shell: 
+    # eval $(docker-machine env default)
+    ```
+* Connect by ssh `docker-machine ssh default`
+
+
+## 17 (docker-3)
+Let's start the container using the none-driver.
+> docker run -ti --rm --network none joffotron/docker-net-tools -c ifconfig
+```cmd
+lo        Link encap:Local Loopback  
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+```
+Let's start the container in the network space of the docker-host
+> docker run -ti --rm --network host joffotron/docker-net-tools -c ifconfig
+```cmd
+docker0   Link encap:Ethernet  HWaddr 02:42:07:E1:E1:9B  
+          inet addr:172.17.0.1  Bcast:172.17.255.255  Mask:255.255.0.0
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+ens4      Link encap:Ethernet  HWaddr 42:01:0A:84:00:0D  
+          inet addr:10.132.0.13  Bcast:10.132.0.13  Mask:255.255.255.255
+          inet6 addr: fe80::4001:aff:fe84:d%32599/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1460  Metric:1
+          RX packets:1652 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:1586 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:8088302 (7.7 MiB)  TX bytes:226618 (221.3 KiB)
+
+lo        Link encap:Local Loopback  
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          inet6 addr: ::1%32599/128 Scope:Host
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+```
+Let's run it several times (2-4)
+> docker run --network host -d nginx
+
+Only one container starts. Because the port is busy
+
+> sudo ln -s /var/run/docker/netns /var/run/netns
+> sudo ip netns
+
+* default
+Thus, we can view the currently existing net-namespaces
+
+Create docker networks
+> docker network create back_net --subnet=10.0.2.0/24
+
+> docker network create front_net --subnet=10.0.1.0/24
+
+```docker
+docker run -d --network=front_net -p 9292:9292 --name ui ivandebian/ui:1.0 && \
+docker run -d --network=back_net --network-alias=comment ivandebian/comment:1.0 && \
+docker run -d --network=back_net --network-alias=post ivandebian/post:1.0 && \
+docker run -d --network=back_net --network-alias=post_db --network-alias=comment_db mongo:latest
+```
+Docker, when initializing a container, can only connect 1 to it
+network. Therefore, you need to place containers post and comment on both networks.
+```docker
+docker network connect front_net post
+docker network connect front_net comment
+```
+
+Stopping old copies of containers
+> docker kill $(docker ps -q)
+
+* Docker-compose
+
+Installing Docker-compose in ubuntu & debian
+ ```bash
+ sudo curl -L "https://github.com/docker/compose/releases/download/1.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+ ```
+ ```bash
+ export USERNAME=ivandebian
+ docker-compose up -d
+ docker-compose ps
+ ```
+
+ 1. The project name can be set via the `container_name` parameter in docker-compose.yml
+ ```yaml
+ container_name: name
+ ```
+
+ 2. The project name can be set via the `project_name` parameter in docker-compose.yml
+
+ 3. Add variable COMPOSE_PROJECT_NAME = project_name
+ 4. Run with the -p switch `docker-compose project_name up -d`
