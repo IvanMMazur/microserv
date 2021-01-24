@@ -1,0 +1,3 @@
+docker-machine create --driver generic --generic-ip-address=35.241.200.246 --generic-ssh-key ~/.ssh/appuser --generic-ssh-user=appuser gitlab-ci
+
+eval $(docker-machine env gitlab-ci)
