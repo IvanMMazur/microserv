@@ -4,7 +4,7 @@ require 'rack/test'
 
 set :environment, :test
 
-class MyAppTest < Test::TestCase
+class MyAppTest < Test::Unit::TestCase
     include Rack::Test::Methods
 
     def app
